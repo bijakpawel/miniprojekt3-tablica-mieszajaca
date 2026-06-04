@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wykresy benchmarku - tablica mieszajaca</title>
+  <style>
+    :root {
+      --bg: #f6f1e8;
+      --panel: #fffaf0;
+      --text: #1d2433;
+      --muted: #5c6475;
+      --grid: #d8cfbf;
+      --chain: #b45309;
+      --linear: #0f766e;
+      --avl: #1d4ed8;
+      --border: rgba(29, 36, 51, 0.12);
+      --shadow: 0 18px 50px rgba(45, 36, 25, 0.10);
+    }
+
+    body {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 28%),
+        radial-gradient(circle at top right, rgba(180, 83, 9, 0.10), transparent 24%),
+        linear-gradient(180deg, #fbf7ef 0%, var(--bg) 100%);
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.4fr 0.8fr;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: rgba(255, 250, 240, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 20px;
+      backdrop-filter: blur(8px);
+    }
+
+    h1, h2 {
+      margin: 0;
+      letter-spacing: -0.02em;
+    }
+
+    h1 {
+      font-size: clamp(2rem, 4vw, 3.5rem);
+      line-height: 0.98;
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px dashed rgba(29, 36, 51, 0.25);
+      padding: 14px;
+      background: white;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(29, 78, 216, 0.08);
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+
+    .chart svg {
+      width: 100%;
+      height: 340px;
+      display: block;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      margin-top: 18px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.95rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(29, 36, 51, 0.10);
+      white-space: nowrap;
+    }
+
+    th {
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-style: italic;
+    }
+
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <div class="card">
+        <h1>Wykresy benchmarku</h1>
+        <p>Wczytaj plik CSV wygenerowany przez benchmark, a strona narysuje porownanie sredniego czasu operacji dla trzech wariantow tablicy mieszajacej.</p>
+        <div class="chips">
+          <span class="chip">CSV: variant, operation, size, total_average_ns, per_operation_average_ns</span>
+          <span class="chip">Bez bibliotek zewnetrznych</span>
+        </div>
+      </div>
+      <div class="card controls">
+        <input id="csvFile" type="file" accept=".csv,text/csv">
+        <p>Wybierz <strong>results/benchmark_summary.csv</strong>. Strona dziala lokalnie, bez serwera.</p>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card chart">
+        <h2>Insert - ns na operacje</h2>
+        <svg id="insertChart" viewBox="0 0 600 320" preserveAspectRatio="none"></svg>
+      </div>
+      <div class="card chart">
+        <h2>Remove - ns na operacje</h2>
+        <svg id="removeChart" viewBox="0 0 600 320" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+
+    <div class="card table-wrap">
+      <h2>Wczytane dane</h2>
+      <div id="tableHost" class="empty">Brak danych. Wczytaj plik CSV, aby wyswietlic tabele i wykresy.</div>
+    </div>
+  </div>
+
+  <script>
+    const colors = {
+      chaining: '#b45309',
+      linear_probing: '#0f766e',
+      avl_buckets: '#1d4ed8',
+    };
+
+    const labels = {
+      chaining: 'Lancuchowanie',
+      linear_probing: 'Adresowanie otwarte',
+      avl_buckets: 'Buckety AVL',
+    };
+
+    const fileInput = document.getElementById('csvFile');
+    const tableHost = document.getElementById('tableHost');
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) {
+        return;
+      }
+
+      const text = await file.text();
+      const rows = parseCsv(text);
+      render(rows);
+    });
+
+    function parseCsv(text) {
+      const lines = text.trim().split(/\r?\n/);
+      const header = lines.shift().split(',');
+      return lines.filter(Boolean).map((line) => {
+        const parts = line.split(',');
+        const row = {};
+        header.forEach((name, index) => {
+          row[name] = parts[index];
+        });
+        row.size = Number(row.size);
+        row.total_average_ns = Number(row.total_average_ns);
+        row.per_operation_average_ns = Number(row.per_operation_average_ns);
+        return row;
+      });
+    }
+
+    function render(rows) {
+      renderTable(rows);
+      renderChart(document.getElementById('insertChart'), rows.filter((row) => row.operation === 'insert'));
+      renderChart(document.getElementById('removeChart'), rows.filter((row) => row.operation === 'remove'));
+    }
+
+    function renderTable(rows) {
+      tableHost.classList.remove('empty');
+      tableHost.innerHTML = [
+        '<table>',
+        '<thead><tr><th>Wariant</th><th>Operacja</th><th>Rozmiar</th><th>Total ns</th><th>ns / operacje</th></tr></thead>',
+        '<tbody>',
+        ...rows.map((row) => `<tr><td>${labels[row.variant] || row.variant}</td><td>${row.operation}</td><td>${row.size}</td><td>${row.total_average_ns.toFixed(2)}</td><td>${row.per_operation_average_ns.toFixed(2)}</td></tr>`),
+        '</tbody></table>',
+      ].join('');
+    }
+
+    function renderChart(svg, rows) {
+      const width = 600;
+      const height = 320;
+      const padding = { top: 18, right: 20, bottom: 42, left: 54 };
+      const innerWidth = width - padding.left - padding.right;
+      const innerHeight = height - padding.top - padding.bottom;
+      const variants = ['chaining', 'linear_probing', 'avl_buckets'];
+
+      if (!rows.length) {
+        svg.innerHTML = '<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#5c6475">Brak danych</text>';
+        return;
+      }
+
+      const grouped = new Map();
+      for (const row of rows) {
+        if (!grouped.has(row.size)) {
+          grouped.set(row.size, []);
+        }
+        grouped.get(row.size).push(row);
+      }
+
+      const sizes = Array.from(grouped.keys()).sort((a, b) => a - b);
+      const maxValue = Math.max(...rows.map((row) => row.per_operation_average_ns), 1);
+      const groupWidth = innerWidth / Math.max(sizes.length, 1);
+      const barWidth = Math.max(10, (groupWidth - 18) / variants.length);
+      const parts = [];
+
+      parts.push(`<rect x="0" y="0" width="${width}" height="${height}" rx="16" fill="white" />`);
+
+      for (let tick = 0; tick <= 4; tick++) {
+        const y = padding.top + innerHeight - (innerHeight * tick / 4);
+        const value = (maxValue * tick / 4).toFixed(0);
+        parts.push(`<line x1="${padding.left}" y1="${y}" x2="${width - padding.right}" y2="${y}" stroke="#d8cfbf" />`);
+        parts.push(`<text x="${padding.left - 10}" y="${y + 4}" text-anchor="end" font-size="11" fill="#5c6475">${value}</text>`);
+      }
+
+      sizes.forEach((size, groupIndex) => {
+        const baseX = padding.left + groupIndex * groupWidth + 8;
+        parts.push(`<text x="${baseX + groupWidth / 2 - 12}" y="${height - 14}" text-anchor="middle" font-size="11" fill="#5c6475">${size}</text>`);
+
+        variants.forEach((variant, variantIndex) => {
+          const row = grouped.get(size)?.find((item) => item.variant === variant);
+          if (!row) {
+            return;
+          }
+
+          const barHeight = (row.per_operation_average_ns / maxValue) * innerHeight;
+          const x = baseX + variantIndex * barWidth + variantIndex * 6;
+          const y = padding.top + innerHeight - barHeight;
+          parts.push(`<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" rx="6" fill="${colors[variant]}" opacity="0.9" />`);
+          parts.push(`<text x="${x + barWidth / 2}" y="${y - 4}" text-anchor="middle" font-size="10" fill="#1d2433">${row.per_operation_average_ns.toFixed(1)}</text>`);
+        });
+      });
+
+      parts.push(`<line x1="${padding.left}" y1="${padding.top + innerHeight}" x2="${width - padding.right}" y2="${padding.top + innerHeight}" stroke="#5c6475" />`);
+      parts.push(`<line x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${padding.top + innerHeight}" stroke="#5c6475" />`);
+      svg.innerHTML = parts.join('');
+    }
+  </script>
+</body>
+</html>
