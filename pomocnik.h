@@ -6,11 +6,11 @@
 
 
 // Liczba powtorzen calego eksperymentu dla danego rozmiaru. Wyniki sa usredniane.
-constexpr int LICZBA_POWTORZEN = 8;
+constexpr int LICZBA_POWTORZEN = 64;
 
 // Pojedyncze wywolanie jest za szybkie aby zmierzyc je dokladnie zegarem,
 // dlatego mierzymy laczny czas K wywolan i dzielimy.
-constexpr int LICZBA_OPERACJI = 50;
+constexpr int LICZBA_OPERACJI = 100;
 
 // ilosc elementow uzywanych w pomiarach.
 std::vector<int> domyslneRozmiary = {5000, 8000, 10000, 16000, 20000, 40000, 60000, 100000};
@@ -128,7 +128,7 @@ void zmierzTabele(const std::string& nazwaPliku) {
             for (int i = 0; i < LICZBA_OPERACJI; i++) {
                 TypTabeli tablicaUni(rozmiarTablicy);
                 wypelnijTabele(tablicaUni, dane);
-                int klucz = dane[klucze[r%dane.size()]].first;
+                int klucz = dane[klucze[r] % dane.size()].first;
                 sumaRemove += zmierzCzas([&]() {
                     tablicaUni.remove(klucz);
                 });
