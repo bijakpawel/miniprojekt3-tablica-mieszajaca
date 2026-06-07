@@ -1,6 +1,4 @@
-#ifndef HASH_TABLES_HPP
-#define HASH_TABLES_HPP
-
+#pragma once
 #include "avl_tree.hpp"
 
 #include <algorithm>
@@ -298,5 +296,3 @@ private:
         buckets_ = std::move(fresh);
     }
 };
-
-#endif
