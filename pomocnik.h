@@ -8,53 +8,39 @@
 // Liczba powtorzen calego eksperymentu dla danego rozmiaru. Wyniki sa usredniane.
 constexpr int LICZBA_POWTORZEN = 8;
 
-// Liczba operacji wykonywanych w jednej serii pomiarowej (peek, modify, extract).
 // Pojedyncze wywolanie jest za szybkie aby zmierzyc je dokladnie zegarem,
 // dlatego mierzymy laczny czas K wywolan i dzielimy.
 constexpr int LICZBA_OPERACJI = 50;
 
-// Liczba wywolan w pomiarze rozmiar() - operacja jest na tyle szybka,
-// ze potrzeba duzej liczby powtorzen.
-constexpr int LICZBA_OPERACJI_ROZMIAR = 100000;
-
-// Rozmiary kolejki uzywane w pomiarach.
+// ilosc elementow uzywanych w pomiarach.
 std::vector<int> domyslneRozmiary = {5000, 8000, 10000, 16000, 20000, 40000, 60000, 100000};
 
+// Rozmiary tablic - pierwsza liczba pierwsza > N*2 dla każdego N
+std::vector<int> rozmiarytablic = {10007, 16007, 20011, 32003, 40009, 80021, 120011, 200003};
 
 
-// Generuje plik z n losowymi liczbami calkowitymi z zakresu [-1000, 1000]
-void generujLiczby(int n) {
-    std::ofstream plik("liczby.txt");
 
+// Generuje wektor z n losowymi parami klucz-wartość
+std::vector<std::pair<int, int>> generujLiczby(int n) {
+    std::vector<std::pair<int, int>> dane;
+    
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distW(-1000, 1000);
-    std::uniform_int_distribution<> distP(0, (n*5) - 1);
+    std::uniform_int_distribution<> distKlucz(1, 1000000000);
 
     for (int i = 0; i < n; i++) {
-        plik << distW(gen) << "\n" << distP(gen) << "\n";
+        dane.push_back({distKlucz(gen), i});
     }
 
-    plik.close();
+    return dane;
 }
 
-// Szablonowa funkcja do wypelniania kolejki z pliku
-// Plausible powinien zawierac pary: wartosc priorytet na kazdym wierszu
-template <typename KolejkaT>
-void wypelnijKolejke(KolejkaT& kolejka, int n) {
-    std::ifstream plik("liczby.txt");
-    if (!plik) {
-        std::cout << "Nie mozna otworzyc pliku!" << std::endl;
-        return;
+// Szablonowa funkcja do wypełniania tabeli z wektora
+template <typename TypTabeli>
+void wypelnijTabele(TypTabeli& tablica, const std::vector<std::pair<int, int>>& dane) {
+    for (const auto& para : dane) {
+        tablica.insert(para.first, para.second);
     }
-    for (int i = 0; i < n && !plik.eof(); i++) {
-        int wartosc, priorytet;
-        plik >> wartosc >> priorytet;
-        if (plik) {
-            kolejka.insert(wartosc, priorytet);
-        }
-    }
-    plik.close();
 }
 
 class Zegar {
@@ -82,110 +68,84 @@ double zmierzCzas(Funkcja operacja) {
 }
 
 
-template <typename TypKolejki>
+template <typename TypTabeli>
 void zmierzTabele(const std::string& nazwaPliku) {
     std::ofstream plik(nazwaPliku);
     if (!plik) {
         std::cout << "Nie mozna otworzyc pliku do zapisu: " << nazwaPliku << std::endl;
         return;
     }
-    plik << "rozmiar,insert,extract,peek,modify,rozmiarOp\n";
+    plik << "rozmiar,insert,remove\n";
 
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distWart(-1000, 1000);
+    std::uniform_int_distribution<> distWart(1, 1000000000);
 
 
-    for (int n : domyslneRozmiary) {
-        double sumaInsert = 0.0, sumaExtract = 0.0, sumaPeek = 0.0;
-        double sumaModify = 0.0, sumaRozmiar = 0.0;
+    // Pre-generujemy klucze do wstawienia i usunięcia
+    std::vector<int> klucze;
+    for (int i = 0; i < LICZBA_POWTORZEN; i++) {
+        klucze.push_back(distWart(gen));
+    }
 
-        std::uniform_int_distribution<> distPrio(0, (n*5) - 1);
+    for (int k = 0; k < domyslneRozmiary.size(); k++) {
+        
+        int n = domyslneRozmiary[k];
+        int rozmiarTablicy = rozmiarytablic[k];
 
+        double sumaInsert = 0.0, sumaRemove = 0.0;
 
-        std::cout << "Pomiar insert i peak dla n=" << n << "..." << std::endl;
+        std::cout << "Pomiar insert i remove dla n=" << n << "..." << std::endl;
 
         for (int r = 0; r < LICZBA_POWTORZEN; r++) {
-            generujLiczby(n);
-            
-            // Pre-generujemy aby pomiar nie obejmowal kosztu losowania.
-            int wart = distWart(gen);
-            int prio = distPrio(gen);
-            int prioPodmiana = distPrio(gen);
+            // Generujemy dane do wektora
+            std::vector<std::pair<int, int>> dane = generujLiczby(n);
 
-            for (int i = 0; i < LICZBA_OPERACJI; i++) {
-                TypKolejki kolejka;
-                wypelnijKolejke(kolejka, n);
-                sumaPeek += zmierzCzas([&]() {
-                    volatile int dummy = 0;
-                    dummy += kolejka.peek().wartosc;
-                    (void)dummy;
-                });
-                sumaInsert += zmierzCzas([&]() {
-                    volatile int dummy = 0;
-                    kolejka.insert(wart, prio);
-                    (void)dummy;
-                });
-            }
+            TypTabeli tablica(rozmiarTablicy);
+            wypelnijTabele(tablica, dane);
 
-
-            std::cout << "Pomiar rozmiar dla n=" << n << "..." << std::endl;
-            // --- Pomiar rozmiar: bardzo szybka operacja, wiele powtorzen ---
-            TypKolejki kolejka;
-            wypelnijKolejke(kolejka, n);
-            sumaRozmiar += zmierzCzas([&]() {
-                volatile int dummy = 0;
-                for (int i = 0; i < LICZBA_OPERACJI_ROZMIAR; i++) {
-                    dummy += kolejka.rozmiar();
+            // Pomiar insert
+            if constexpr (std::is_same_v<TypTabeli, LinearProbingHashTable>) {
+                for (int i = 0; i < LICZBA_OPERACJI; i++) {
+                    TypTabeli tablicaUni(rozmiarTablicy);
+                    wypelnijTabele(tablicaUni, dane);
+                    int klucz = klucze[r];
+                    sumaInsert += zmierzCzas([&]() {
+                        tablicaUni.insert(klucz, i);
+                    });
                 }
-                (void)dummy;
-            });
-
-            std::cout << "Pomiar modify dla n=" << n << "..." << std::endl;
-            // --- Pomiar modify: K modyfikacji na pelnej kolejce ---
-            for (int i = 0; i < LICZBA_OPERACJI; i++) {
-                TypKolejki kolejka;
-                wypelnijKolejke(kolejka, n);
-                sumaModify += zmierzCzas([&]() {
-                    volatile int dummy = 0;
-                    dummy += kolejka.modifyKey(prio, prioPodmiana);
-                    (void)dummy;
-                });
+            } else {
+                for (int i = 0; i < LICZBA_OPERACJI; i++) {
+                    int klucz = klucze[r];
+                    sumaInsert += zmierzCzas([&]() {
+                        tablica.insert(klucz, i);
+                    });
+                    tablica.remove(klucz);
+                }
             }
-
-            std::cout << "Pomiar extract dla n=" << n << "..." << std::endl;
-            // --- Pomiar extract: K wyciagniec (rozmiar maleje, ale K << n) ---
+            
+            // Pomiar remove
             for (int i = 0; i < LICZBA_OPERACJI; i++) {
-                TypKolejki kolejka;
-                wypelnijKolejke(kolejka, n);
-                sumaExtract += zmierzCzas([&]() {
-                    volatile int dummy = 0;
-                    dummy += kolejka.extractMax().wartosc;
-                    (void)dummy;
+                TypTabeli tablicaUni(rozmiarTablicy);
+                wypelnijTabele(tablicaUni, dane);
+                int klucz = dane[klucze[r%dane.size()]].first;
+                sumaRemove += zmierzCzas([&]() {
+                    tablicaUni.remove(klucz);
                 });
             }
         }
 
-        double sredniInsert = (sumaInsert / LICZBA_POWTORZEN)/ LICZBA_OPERACJI;
-        double sredniExtract = (sumaExtract / LICZBA_POWTORZEN) / LICZBA_OPERACJI;
-        double sredniPeek = (sumaPeek / LICZBA_POWTORZEN) / LICZBA_OPERACJI;
-        double sredniModify = (sumaModify / LICZBA_POWTORZEN) / LICZBA_OPERACJI;
-        double sredniRozmiar = (sumaRozmiar / LICZBA_POWTORZEN) / LICZBA_OPERACJI_ROZMIAR;
+        double sredniInsert = (sumaInsert / LICZBA_POWTORZEN) / LICZBA_OPERACJI;
+        double sredniRemove = (sumaRemove / LICZBA_POWTORZEN) / LICZBA_OPERACJI;
 
         plik << n << ","
              << sredniInsert << ","
-             << sredniExtract << ","
-             << sredniPeek << ","
-             << sredniModify << ","
-             << sredniRozmiar << "\n";
+             << sredniRemove << "\n";
         plik.flush();
 
         std::cout << "  n=" << n
                   << "  insert=" << sredniInsert << " ns"
-                  << "  extract=" << sredniExtract << " ns"
-                  << "  peek=" << sredniPeek << " ns"
-                  << "  modify=" << sredniModify << " ns"
-                  << "  rozmiar=" << sredniRozmiar << " ns"
+                  << "  remove=" << sredniRemove << " ns"
                   << std::endl;
     }
 
